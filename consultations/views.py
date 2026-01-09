@@ -1,0 +1,45 @@
+from django.shortcuts import render
+
+# Create your views here.
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+
+from .models import Consultation
+from .serializers import ConsultationSerializer
+
+
+class ConsultationViewSet(viewsets.ModelViewSet):
+    queryset = Consultation.objects.all().order_by("-created_at")
+    serializer_class = ConsultationSerializer
+
+    @action(detail=True, methods=["POST"])
+    def process(self, request, pk=None):
+        c: Consultation = self.get_object()
+
+        # --- Panggil Hybrid RAG (opsi C) ---
+        # Pastikan kamu punya modul ini di app ragapi:
+        # from ragapi.hybrid import answer_hybrid
+        try:
+            from ragapi.hybrid import answer_hybrid  # type: ignore
+            result = answer_hybrid(c, k=8)
+            c.rag_citations = [h["meta"] for h in result["hits"]]
+            c.answer_text = result["answer"]
+            c.save()
+
+            data = self.get_serializer(c).data
+            data["did_autofetch"] = result.get("did_autofetch", False)
+            return Response(data, status=status.HTTP_200_OK)
+
+        except ModuleNotFoundError:
+            # fallback kalau ragapi belum ada
+            c.answer_text = "RAG pipeline belum dihubungkan (ragapi.hybrid belum tersedia)."
+            c.rag_citations = []
+            c.save()
+            return Response(self.get_serializer(c).data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"error": "Gagal memproses konsultasi", "detail": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
