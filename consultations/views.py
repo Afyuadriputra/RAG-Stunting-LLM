@@ -1,6 +1,3 @@
-from django.shortcuts import render
-
-# Create your views here.
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -17,14 +14,13 @@ class ConsultationViewSet(viewsets.ModelViewSet):
     def process(self, request, pk=None):
         c: Consultation = self.get_object()
 
-        # --- Panggil Hybrid RAG (opsi C) ---
-        # Pastikan kamu punya modul ini di app ragapi:
-        # from ragapi.hybrid import answer_hybrid
         try:
+            # lazy import supaya startup cepat
             from ragapi.hybrid import answer_hybrid  # type: ignore
+
             result = answer_hybrid(c, k=8)
-            c.rag_citations = [h["meta"] for h in result["hits"]]
-            c.answer_text = result["answer"]
+            c.rag_citations = [h["meta"] for h in result.get("hits", [])]
+            c.answer_text = result.get("answer")
             c.save()
 
             data = self.get_serializer(c).data
@@ -32,7 +28,6 @@ class ConsultationViewSet(viewsets.ModelViewSet):
             return Response(data, status=status.HTTP_200_OK)
 
         except ModuleNotFoundError:
-            # fallback kalau ragapi belum ada
             c.answer_text = "RAG pipeline belum dihubungkan (ragapi.hybrid belum tersedia)."
             c.rag_citations = []
             c.save()
