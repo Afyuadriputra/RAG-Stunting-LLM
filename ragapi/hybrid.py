@@ -1,23 +1,33 @@
 import os
 import tempfile
 import httpx
+import json
 
 from .retrieval import retrieve
 from .gating import evidence_is_weak
 from .pdf_ingest import upsert_pdf
 from .sources_pmc import pmc_search, pmc_fetch_summary
+from .sources_semantic_scholar import s2_search, s2_fetch_summary
+from .sources_openalex import openalex_search, openalex_fetch_summary
 from .prompts import system_prompt, build_context
 from .openrouter_client import chat
 
 
 def build_retrieval_query(c) -> str:
     # bisa kamu upgrade nanti (keyword expansion, include vision_findings, dsb.)
+    vision = ""
+    if c.vision_findings:
+        try:
+            vision = json.dumps(c.vision_findings, ensure_ascii=True)
+        except Exception:
+            vision = str(c.vision_findings)
     return (
         f"Topik: pencegahan stunting / gizi anak dan remaja.\n"
         f"Mode: {c.mode}.\n"
         f"Umur: {c.age_value} {c.age_unit}. Gender: {c.sex}.\n"
         f"BB: {c.weight_kg} kg. TB/PB: {c.height_cm} cm.\n"
         f"Pertanyaan: {c.user_question}\n"
+        f"Temuan visual (jika ada): {vision}\n"
     )
 
 
@@ -29,12 +39,24 @@ def _download_pdf(url: str, out_path: str):
             f.write(r.content)
 
 
+def _build_external_query(query: str, max_len: int = 400) -> str:
+    """
+    Batasi query untuk provider eksternal agar tidak terlalu panjang.
+    """
+    if len(query) <= max_len:
+        return query
+    return query[:max_len]
+
+
 def autofetch_oa_and_ingest(query: str, max_papers: int = 3) -> int:
     """
-    On-demand: cari OA paper dari PMC → download PDF → ingest ke Chroma.
+    On-demand: cari OA paper dari PMC/Semantic Scholar/OpenAlex → download PDF → ingest ke Chroma.
     """
-    pmcids = pmc_search(query, retmax=max_papers)
+    external_query = _build_external_query(query)
+    pmcids = pmc_search(external_query, retmax=max_papers)
     metas = pmc_fetch_summary(pmcids)
+    metas += s2_fetch_summary(s2_search(external_query, limit=max_papers))
+    metas += openalex_fetch_summary(openalex_search(external_query, per_page=max_papers))
 
     inserted_total = 0
     with tempfile.TemporaryDirectory() as td:
@@ -75,8 +97,11 @@ def _format_sources(hits):
             parts.append(f"SOURCE:{source}")
 
         pdf_url = m.get("pdf_url")
+        landing_url = m.get("landing_url") or m.get("url")
         if pdf_url:
-            parts.append(f"URL:{pdf_url}")
+            parts.append(f"PDF:{pdf_url}")
+        if landing_url:
+            parts.append(f"URL:{landing_url}")
 
         lines.append(f"[S{i}] " + " | ".join(parts))
     return "\n".join(lines)
@@ -120,6 +145,7 @@ DATA USER:
 - BB: {c.weight_kg} kg
 - TB/PB: {c.height_cm} cm ({c.measurement_type})
 - pertanyaan: {c.user_question}
+ - temuan visual (jika ada): {c.vision_findings}
 
 CONTEXT:
 {context}

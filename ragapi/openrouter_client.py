@@ -13,3 +13,15 @@ def chat(messages, max_tokens=1000):
         max_tokens=max_tokens,
     )
     return resp.choices[0].message.content
+
+
+def chat_vision(messages, max_tokens=800):
+    """
+    Messages dapat berisi content list dengan tipe text dan image_url.
+    """
+    resp = _client.chat.completions.create(
+        model=settings.OPENROUTER_MODEL,
+        messages=messages,
+        max_tokens=max_tokens,
+    )
+    return resp.choices[0].message.content

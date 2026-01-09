@@ -110,6 +110,7 @@ def upsert_pdf(pdf_path: str, paper_meta: dict, batch_size: int = 64) -> int:
                 "doi": paper_meta.get("doi"),
                 "source": paper_meta.get("source", "oa"),
                 "pdf_url": paper_meta.get("pdf_url"),
+                "landing_url": paper_meta.get("landing_url") or paper_meta.get("url"),
                 "chunk_index": chunk_index,
             }
         )

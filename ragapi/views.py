@@ -36,6 +36,7 @@ class IngestPDFView(APIView):
             "doi": request.data.get("doi"),
             "source": request.data.get("source", "oa"),
             "pdf_url": pdf_url,
+            "landing_url": request.data.get("landing_url") or request.data.get("url"),
         }
 
         with tempfile.TemporaryDirectory() as td:
